@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<title>Uno mit +2 und Reverse – Digna Arts</title>
+<style>
+  body {
+    font-family: 'Segoe UI', sans-serif;
+    background: #eee;
+    margin: 0;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  #hand, #opponent-hand {
+    margin-top: 1rem;
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    max-width: 600px;
+  }
+  .card {
+    width: 60px;
+    height: 90px;
+    border-radius: 8px;
+    color: white;
+    font-weight: bold;
+    font-size: 1.2rem;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+  }
+  .red { background: #d33; }
+  .green { background: #3a3; }
+  .blue { background: #36f; }
+  .yellow { background: #cc3; color: black; }
+  #discard-pile {
+    margin-top: 2rem;
+    width: 60px;
+    height: 90px;
+    border-radius: 8px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-weight: bold;
+    font-size: 1.2rem;
+  }
+  #draw-button {
+    margin-top: 1rem;
+    padding: 0.5rem 1rem;
+    font-size: 1rem;
+    cursor: pointer;
+    border-radius: 6px;
+    border: none;
+    background: #06c;
+    color: white;
+  }
+</style>
+</head>
+<body>
+
+<h1>Uno mit +2 und Reverse – Digna Arts</h1>
+
+<div>Gegner:</div>
+<div id="opponent-hand"></div>
+
+<div>Ablagestapel:</div>
+<div id="discard-pile"></div>
+
+<button id="draw-button">Karte ziehen</button>
+
+<div>Deine Hand:</div>
+<div id="hand"></div>
+
+<script>
+  const colors = ['red', 'green', 'blue', 'yellow'];
+  const numbers = [...Array(10).keys()]; // 0-9
+  const specialCards = ['+2', 'R']; // R = Reverse
+
+  function createDeck() {
+    let deck = [];
+    for (const color of colors) {
+      // Zahlenkarten
+      for (const num of numbers) {
+        deck.push({color, type: 'number', value: num});
+        if(num !== 0) deck.push({color, type: 'number', value: num});
+      }
+      // Spezialkarten +2 und Reverse, je 2 pro Farbe
+      for(let i=0; i<2; i++){
+        deck.push({color, type: '+2', value: '+2'});
+        deck.push({color, type: 'R', value: 'R'});
+      }
+    }
+    return deck;
+  }
+
+  function shuffle(deck) {
+    for(let i = deck.length - 1; i > 0; i--){
+      const j = Math.floor(Math.random() * (i + 1));
+      [deck[i], deck[j]] = [deck[j], deck[i]];
+    }
+  }
+
+  function deal(deck, count=7) {
+    return deck.splice(0, count);
+  }
+
+  function cardToDiv(card) {
+    const div = document.createElement('div');
+    div.className = `card ${card.color}`;
+    if(card.type === 'number') div.textContent = card.value;
+    else if(card.type === '+2') div.textContent = '+2';
+    else if(card.type === 'R') div.textContent = '⤾';
+    return div;
+  }
+
+  // State
+  let deck = createDeck();
+  shuffle(deck);
+  let playerHand = deal(deck);
+  let opponentHand = deal(deck);
+  let discardPile = [];
+
+  // Spielrichtung: 1 = Spieler -> Gegner, -1 = Gegner -> Spieler
+  let direction = 1;
+
+  // Wer ist gerade dran? 'player' oder 'opponent'
+  let currentPlayer = 'player';
+
+  // Starte mit oberster Karte vom Deck im Ablagestapel (Zahlenkarte)
+  do {
+    discardPile.push(deck.pop());
+  } while (discardPile[discardPile.length -1].type !== 'number');
+
+  const handDiv = document.getElementById('hand');
+  const opponentDiv = document.getElementById('opponent-hand');
+  const discardDiv = document.getElementById('discard-pile');
+  const drawBtn = document.getElementById('draw-button');
+
+  function updateUI() {
+    // Spielerhand
+    handDiv.innerHTML = '';
+    for(let i=0; i<playerHand.length; i++) {
+      const card = playerHand[i];
+      const cardDiv = cardToDiv(card);
+      cardDiv.addEventListener('click', () => playerPlayCard(i));
+      handDiv.appendChild(cardDiv);
+    }
+
+    // Gegnerhand (nur Rückseiten)
+    opponentDiv.innerHTML = '';
+    for(let i=0; i<opponentHand.length; i++) {
+      const backCard = document.createElement('div');
+      backCard.className = 'card';
+      backCard.style.background = '#555';
+      backCard.textContent = '?';
+      opponentDiv.appendChild(backCard);
+    }
+
+    // Ablagestapel
+    const topCard = discardPile[discardPile.length -1];
+    discardDiv.className = 'card ' + topCard.color;
+    discardDiv.textContent = topCard.type === 'number' ? topCard.value : (topCard.type === '+2' ? '+2' : '⤾');
+
+    // Ziehen Button aktivieren/deaktivieren je nach Zug
+    drawBtn.disabled = (currentPlayer !== 'player');
+  }
+
+  function canPlay(card, topCard) {
+    if(card.color === topCard.color) return true;
+    if(card.type === topCard.type && card.value === topCard.value) return true;
+    if(card.type === 'number' && topCard.type === 'number' && card.value === topCard.value) return true;
+    return false;
+  }
+
+  function switchTurn() {
+    if(direction === 1) {
+      currentPlayer = currentPlayer === 'player' ? 'opponent' : 'player';
+    } else {
+      currentPlayer = currentPlayer === 'player' ? 'opponent' : 'player';
+    }
+    if(currentPlayer === 'opponent') {
+      setTimeout(opponentTurn, 1000);
+    }
+  }
+
+  function playerPlayCard(index) {
+    if(currentPlayer !== 'player') {
+      alert('Nicht dein Zug!');
+      return;
+    }
+    const card = playerHand[index];
+    const topCard = discardPile[discardPile.length -1];
+    if(canPlay(card, topCard)) {
+      discardPile.push(card);
+      playerHand.splice(index, 1);
+      handleSpecialCard(card, 'player');
+      updateUI();
+      checkWin();
+      if(currentPlayer === 'player') {
+        switchTurn();
+      }
+    } else {
+      alert('Diese Karte kannst du nicht legen!');
+    }
+  }
+
+  function playerDrawCard() {
+    if(currentPlayer !== 'player') {
+      alert('Nicht dein Zug!');
+      return;
+    }
+    if(deck.length === 0) {
+      alert('Deck leer! Spiel endet unentschieden.');
+      return;
+    }
+    playerHand.push(deck.pop());
+    updateUI();
+    switchTurn();
+  }
+
+  function opponentTurn() {
+    if(currentPlayer !== 'opponent') return;
+    const topCard = discardPile[discardPile.length -1];
+    let played = false;
+    for(let i=0; i<opponentHand.length; i++) {
+      if(canPlay(opponentHand[i], topCard)) {
+        const playedCard = opponentHand.splice(i,1)[0];
+        discardPile.push(playedCard);
+        played = true;
+        handleSpecialCard(playedCard, 'opponent');
+        break;
+      }
+    }
+    if(!played) {
+      if(deck.length > 0) {
+        opponentHand.push(deck.pop());
+      } else {
+        alert('Deck leer! Spiel endet unentschieden.');
+        return;
+      }
+    }
+    updateUI();
+    checkWin();
+    if(currentPlayer === 'opponent') {
+      switchTurn();
+    }
+  }
+
+  function handleSpecialCard(card, player) {
+    if(card.type === '+2') {
+      if(player === 'player') {
+        alert('Du hast eine +2 gelegt! Gegner zieht 2 Karten und setzt aus.');
+        for(let i=0; i<2; i++) opponentHand.push(deck.pop());
+        updateUI();
+        currentPlayer = 'player'; // Gegner setzt aus, Spieler ist nochmal dran
+      } else {
+        alert('Gegner legt +2! Du ziehst 2 Karten und setzt aus.');
+        for(let i=0; i<2; i++) playerHand.push(deck.pop());
+        updateUI();
+        currentPlayer = 'opponent'; // Spieler setzt aus, Gegner ist nochmal dran
+      }
+    }
+    else if(card.type === 'R') {
+      alert('Reverse gespielt! Richtung wird umgekehrt.');
+      direction *= -1;
+      // Bei 2 Spielern bleibt der aktuelle Spieler am Zug
+      currentPlayer = player;
+    }
+  }
+
+  function checkWin() {
+    if(playerHand.length === 0) {
+      alert('Du hast gewonnen!');
+      resetGame();
+    } else if(opponentHand.length === 0) {
+      alert('Der Gegner hat gewonnen!');
+      resetGame();
+    }
+  }
+
+  function resetGame() {
+    deck = createDeck();
+    shuffle(deck);
+    playerHand = deal(deck);
+    opponentHand = deal(deck);
+    discardPile = [];
+    do {
+      discardPile.push(deck.pop());
+    } while (discardPile[discardPile.length -1].type !== 'number');
+    direction = 1;
+    currentPlayer = 'player';
+    updateUI();
+  }
+
+  drawBtn.addEventListener('click', playerDrawCard);
+
+  updateUI();
+</script>
+
+</body>
+</html>
