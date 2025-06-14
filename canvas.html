@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<title>Canvas mit Zoom, Farben & Ebenen</title>
+<style>
+  body { margin:0; font-family:sans-serif; }
+  #toolbar {
+    padding:10px;
+    display:flex;
+    gap:10px;
+    background:#eee;
+    flex-wrap: wrap;
+  }
+  canvas {
+    border:1px solid #ccc;
+    touch-action:none;
+    display:block;
+    margin: 10px auto;
+    background: white;
+  }
+  #layers {
+    display:flex;
+    gap:5px;
+    flex-wrap: wrap;
+  }
+  .layer-btn {
+    padding:5px 10px;
+    border:1px solid #888;
+    cursor:pointer;
+    user-select:none;
+  }
+  .layer-btn.active {
+    background:#4caf50;
+    color:white;
+  }
+  .layer-btn input[type=checkbox] {
+    margin-left: 5px;
+  }
+</style>
+</head>
+<body>
+  <div id="toolbar">
+    <label>Größe: <input type="range" id="size" min="1" max="50" value="5"></label>
+    <label>Farbe: <input type="color" id="color" value="#000000"></label>
+    <button id="pen">Stift</button>
+    <button id="eraser">Radierer</button>
+    <button id="undo">Undo</button>
+    <button id="text">Text</button>
+  </div>
+  <div id="layers"></div>
+  <canvas id="canvas" width="800" height="600"></canvas>
+
+<script>
+(() => {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+
+  // Ebenen: jedes Layer hat eigenen Canvas + Context
+  let layers = [];
+  let currentLayerIndex = 0;
+
+  // Zoom & Pan
+  let scale = 1;
+  let panX = 0;
+  let panY = 0;
+  let isPanning = false;
+  let startPan = {x:0,y:0};
+
+  // Zustand
+  let drawing = false;
+  let erasing = false;
+  let addingText = false;
+  let lastX = 0;
+  let lastY = 0;
+
+  // History für Undo pro Layer
+  let history = [];
+
+  function createLayer(name = 'Layer') {
+    const c = document.createElement('canvas');
+    c.width = canvas.width;
+    c.height = canvas.height;
+    c.style.position = 'absolute';
+    c.style.left = '0';
+    c.style.top = '0';
+    const cx = c.getContext('2d');
+    layers.push({canvas: c, ctx: cx, name, visible: true, history: []});
+    addLayerButton(layers.length - 1);
+    return layers.length -1;
+  }
+
+  function addLayerButton(idx) {
+    const layersDiv = document.getElementById('layers');
+    const btn = document.createElement('div');
+    btn.className = 'layer-btn active';
+    btn.textContent = layers[idx].name;
+    btn.dataset.idx = idx;
+
+    // Sichtbarkeit Checkbox
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = true;
+    cb.title = 'sichtbar';
+    cb.onclick = e => {
+      layers[idx].visible = cb.checked;
+      drawAll();
+      e.stopPropagation();
+    };
+    btn.appendChild(cb);
+
+    btn.onclick = () => {
+      currentLayerIndex = idx;
+      updateActiveLayerButton();
+    };
+
+    layersDiv.appendChild(btn);
+  }
+
+  function updateActiveLayerButton() {
+    const buttons = document.querySelectorAll('.layer-btn');
+    buttons.forEach(b => b.classList.remove('active'));
+    buttons[currentLayerIndex].classList.add('active');
+  }
+
+  function saveState() {
+    const layer = layers[currentLayerIndex];
+    if (!layer) return;
+    layer.history.push(layer.canvas.toDataURL());
+    if (layer.history.length > 20) layer.history.shift();
+  }
+
+  function undo() {
+    const layer = layers[currentLayerIndex];
+    if (!layer || layer.history.length === 0) return;
+    const img = new Image();
+    const dataURL = layer.history.pop();
+    img.src = dataURL;
+    img.onload = () => {
+      layer.ctx.clearRect(0,0,canvas.width,canvas.height);
+      layer.ctx.drawImage(img,0,0);
+      drawAll();
+    }
+  }
+
+  function drawAll() {
+    // Clear main canvas
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Apply zoom and pan
+    ctx.setTransform(scale, 0, 0, scale, panX, panY);
+
+    // Draw visible layers
+    layers.forEach(layer => {
+      if (layer.visible) {
+        ctx.drawImage(layer.canvas, 0, 0);
+      }
+    });
+  }
+
+  function getPointerPos(e) {
+    let rect = canvas.getBoundingClientRect();
+    let x, y;
+    if (e.touches) {
+      x = e.touches[0].clientX - rect.left;
+      y = e.touches[0].clientY - rect.top;
+    } else {
+      x = e.offsetX;
+      y = e.offsetY;
+    }
+    // Rückrechnung der Zoom & Pan
+    return [(x - panX) / scale, (y - panY) / scale];
+  }
+
+  function startDraw(x, y) {
+    drawing = true;
+    lastX = x;
+    lastY = y;
+    saveState();
+  }
+
+  function drawLine(x, y) {
+    if (!drawing) return;
+    const layer = layers[currentLayerIndex];
+    const ctxL = layer.ctx;
+    ctxL.lineCap = 'round';
+    ctxL.lineWidth = document.getElementById('size').value;
+    ctxL.strokeStyle = erasing ? 'white' : document.getElementById('color').value;
+    ctxL.beginPath();
+    ctxL.moveTo(lastX, lastY);
+    ctxL.lineTo(x, y);
+    ctxL.stroke();
+    lastX = x;
+    lastY = y;
+    drawAll();
+  }
+
+  function stopDraw() {
+    drawing = false;
+  }
+
+  // Eventhandler
+  canvas.addEventListener('mousedown', e => {
+    if (addingText) {
+      const [x,y] = getPointerPos(e);
+      const text = prompt("Text eingeben:");
+      if (text) {
+        const layer = layers[currentLayerIndex];
+        const ctxL = layer.ctx;
+        ctxL.font = "20px sans-serif";
+        ctxL.fillStyle = document.getElementById('color').value;
+        ctxL.fillText(text, x, y);
+        saveState();
+        drawAll();
+      }
+      addingText = false;
+      return;
+    }
+    if (e.button === 1) { // Mittlere Maustaste = Pan starten
+      isPanning = true;
+      startPan.x = e.clientX - panX;
+      startPan.y = e.clientY - panY;
+      return;
+    }
+    const [x,y] = getPointerPos(e);
+    startDraw(x,y);
+  });
+  canvas.addEventListener('mousemove', e => {
+    if (isPanning) {
+      panX = e.clientX - startPan.x;
+      panY = e.clientY - startPan.y;
+      drawAll();
+      return;
+    }
+    const [x,y] = getPointerPos(e);
+    drawLine(x,y);
+  });
+  canvas.addEventListener('mouseup', e => {
+    if (isPanning) {
+      isPanning = false;
+      return;
+    }
+    stopDraw();
+  });
+  canvas.addEventListener('mouseout', stopDraw);
+
+  // Touch events
+  canvas.addEventListener('touchstart', e => {
+    if (addingText) {
+      const [x,y] = getPointerPos(e);
+      const text = prompt("Text eingeben:");
+      if (text) {
+        const layer = layers[currentLayerIndex];
+        const ctxL = layer.ctx;
+        ctxL.font = "20px sans-serif";
+        ctxL.fillStyle = document.getElementById('color').value;
+        ctxL.fillText(text, x, y);
+        saveState();
+        drawAll();
+      }
+      addingText = false;
+      e.preventDefault();
+      return;
+    }
+    if (e.touches.length === 2) {
+      // Pinch zoom wird weiter unten behandelt
+      return;
+    }
+    const [x,y] = getPointerPos(e);
+    startDraw(x,y);
+    e.preventDefault();
+  });
+  canvas.addEventListener('touchmove', e => {
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      handlePinch(e);
+      return;
+    }
+    const [x,y] = getPointerPos(e);
+    drawLine(x,y);
+    e.preventDefault();
+  });
+  canvas.addEventListener('touchend', e => {
+    stopDraw();
+  });
+
+  // Pinch Zoom
+  let lastDist = 0;
+  function handlePinch(e) {
+    const t1 = e.touches[0];
+    const t2 = e.touches[1];
+    const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+    if (lastDist) {
+      const delta = dist - lastDist;
+      zoom(delta * 0.01, (t1.clientX + t2.clientX)/2, (t1.clientY + t2.clientY)/2);
+    }
+    lastDist = dist;
+  }
+  canvas.addEventListener('touchcancel', () => { lastDist = 0; });
+  canvas.addEventListener('touchend', () => { lastDist = 0; });
+
+  // Maus-Rad Zoom
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    zoom(-e.deltaY * 0.001, e.offsetX, e.offsetY);
+  });
+
+  function zoom(deltaScale, centerX, centerY) {
+    const oldScale = scale;
+    scale += deltaScale;
+    if (scale < 0.2) scale = 0.2;
+    if (scale > 5) scale = 5;
+
+    // Zoom um den Maus-/Touchpunkt
+    panX -= (centerX - panX) * (scale / oldScale - 1);
+    panY -= (centerY - panY) * (scale / oldScale - 1);
+
+    drawAll();
+  }
+
+  // Toolbar Buttons
+  document.getElementById('pen').onclick = () => { erasing = false; addingText = false; };
+  document.getElementById('eraser').onclick = () => { erasing = true; addingText = false; };
+  document.getElementById('undo').onclick = () => undo();
+  document.getElementById('text').onclick = () => { addingText = true; };
+
+  // Init mit 3 Layern
+  createLayer('Hintergrund');
+  createLayer('Mittelschicht');
+  createLayer('Vordergrund');
+  updateActiveLayerButton();
+  drawAll();
+
+})();
+</script>
+</body>
+</html>
