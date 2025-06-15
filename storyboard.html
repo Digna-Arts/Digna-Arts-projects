@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<title>Storyboard-Tool</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    padding: 20px;
+    background: #f9f9f9;
+  }
+  h1 {
+    text-align: center;
+  }
+  #addSceneBtn {
+    margin-bottom: 10px;
+    padding: 8px 12px;
+    font-size: 16px;
+  }
+  #storyboard {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    padding: 10px;
+    background: #fff;
+    border: 2px solid #ccc;
+    min-height: 180px;
+  }
+  .scene {
+    background: #e3e3e3;
+    padding: 10px;
+    width: 200px;
+    border-radius: 6px;
+    cursor: grab;
+    user-select: none;
+    display: flex;
+    flex-direction: column;
+  }
+  .scene.dragging {
+    opacity: 0.5;
+  }
+  .scene input, .scene textarea {
+    width: 100%;
+    margin-top: 6px;
+    padding: 4px;
+    border: 1px solid #aaa;
+    border-radius: 4px;
+    font-size: 14px;
+    resize: vertical;
+  }
+  .scene textarea {
+    height: 60px;
+  }
+  .scene header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .deleteBtn {
+    background: #d9534f;
+    border: none;
+    color: white;
+    font-weight: bold;
+    border-radius: 4px;
+    cursor: pointer;
+    padding: 2px 6px;
+  }
+</style>
+</head>
+<body>
+  <h1>Storyboard-Tool</h1>
+  <button id="addSceneBtn">Szene hinzufügen</button>
+  <div id="storyboard"></div>
+
+  <script>
+    const storyboard = document.getElementById('storyboard');
+    const addSceneBtn = document.getElementById('addSceneBtn');
+
+    addSceneBtn.onclick = () => addScene();
+
+    function addScene(title = '', desc = '') {
+      const scene = document.createElement('div');
+      scene.className = 'scene';
+      scene.draggable = true;
+
+      scene.innerHTML = `
+        <header>
+          <strong>Szene</strong>
+          <button class="deleteBtn" title="Szene löschen">×</button>
+        </header>
+        <input type="text" placeholder="Titel" value="${title}" />
+        <textarea placeholder="Beschreibung">${desc}</textarea>
+      `;
+
+      const deleteBtn = scene.querySelector('.deleteBtn');
+      deleteBtn.onclick = () => scene.remove();
+
+      storyboard.appendChild(scene);
+
+      addDragAndDrop(scene);
+    }
+
+    function addDragAndDrop(scene) {
+      scene.addEventListener('dragstart', e => {
+        scene.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', null);
+        draggingScene = scene;
+      });
+
+      scene.addEventListener('dragend', () => {
+        scene.classList.remove('dragging');
+        draggingScene = null;
+      });
+
+      scene.addEventListener('dragover', e => {
+        e.preventDefault();
+        const dragging = draggingScene;
+        if (!dragging || dragging === scene) return;
+
+        const rect = scene.getBoundingClientRect();
+        const offset = e.clientX - rect.left;
+        const insertBefore = offset < rect.width / 2;
+        if (insertBefore) {
+          storyboard.insertBefore(dragging, scene);
+        } else {
+          storyboard.insertBefore(dragging, scene.nextSibling);
+        }
+      });
+    }
+
+    let draggingScene = null;
+
+    // Starte mit 2 Szenen
+    addScene('Intro', 'Vorstellung der Hauptfigur');
+    addScene('Konflikt', 'Problem tritt auf');
+  </script>
+</body>
+</html>
