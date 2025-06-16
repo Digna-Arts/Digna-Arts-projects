@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<title>Einfacher Animation Maker</title>
+<style>
+  body { font-family: sans-serif; padding: 20px; max-width: 600px; margin: auto; }
+  #image-list { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+  .thumb {
+    width: 80px; height: 80px; object-fit: cover; border: 2px solid #ccc;
+    cursor: grab; user-select: none;
+  }
+  #animation {
+    margin-top: 20px; width: 300px; height: 300px; border: 2px solid #333;
+    display: flex; align-items: center; justify-content: center;
+    background: #eee;
+  }
+  #animation img {
+    max-width: 100%; max-height: 100%;
+  }
+  label, input, button {
+    margin-top: 10px; display: block; width: 100%;
+  }
+</style>
+</head>
+<body>
+
+<h2>Animation Maker</h2>
+
+<label>Fotos hochladen:</label>
+<input type="file" id="upload" multiple accept="image/*" />
+
+<label>Geschwindigkeit (ms pro Bild):</label>
+<input type="number" id="speed" value="500" min="50" />
+
+<div id="image-list"></div>
+
+<button id="start">Animation starten</button>
+<button id="stop" disabled>Stoppen</button>
+
+<div id="animation"></div>
+
+<script>
+  const upload = document.getElementById('upload');
+  const imageList = document.getElementById('image-list');
+  const speedInput = document.getElementById('speed');
+  const startBtn = document.getElementById('start');
+  const stopBtn = document.getElementById('stop');
+  const animation = document.getElementById('animation');
+
+  let images = [];
+  let currentIndex = 0;
+  let timer = null;
+
+  // Drag & Drop Sortierung
+  let dragSrcEl = null;
+
+  function handleDragStart(e) {
+    dragSrcEl = this;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/html', this.outerHTML);
+    this.classList.add('dragElem');
+  }
+
+  function handleDragOver(e) {
+    if (e.preventDefault) e.preventDefault();
+    this.classList.add('over');
+    e.dataTransfer.dropEffect = 'move';
+    return false;
+  }
+
+  function handleDragEnter(e) {
+    // this.classList.add('over');
+  }
+
+  function handleDragLeave(e) {
+    this.classList.remove('over');
+  }
+
+  function handleDrop(e) {
+    if (e.stopPropagation) e.stopPropagation();
+
+    if (dragSrcEl !== this) {
+      this.parentNode.removeChild(dragSrcEl);
+      const dropHTML = e.dataTransfer.getData('text/html');
+      this.insertAdjacentHTML('beforebegin', dropHTML);
+      const dropElem = this.previousSibling;
+
+      addDnDHandlers(dropElem);
+
+      // Update images array entsprechend der neuen Reihenfolge
+      updateImagesArray();
+    }
+    this.classList.remove('over');
+    return false;
+  }
+
+  function handleDragEnd(e) {
+    const thumbs = document.querySelectorAll('.thumb');
+    thumbs.forEach(t => {
+      t.classList.remove('over');
+      t.classList.remove('dragElem');
+    });
+  }
+
+  function addDnDHandlers(elem) {
+    elem.addEventListener('dragstart', handleDragStart, false);
+    elem.addEventListener('dragenter', handleDragEnter, false);
+    elem.addEventListener('dragover', handleDragOver, false);
+    elem.addEventListener('dragleave', handleDragLeave, false);
+    elem.addEventListener('drop', handleDrop, false);
+    elem.addEventListener('dragend', handleDragEnd, false);
+  }
+
+  function updateImagesArray() {
+    images = [];
+    const thumbs = imageList.querySelectorAll('img');
+    thumbs.forEach(img => images.push(img.src));
+  }
+
+  upload.addEventListener('change', () => {
+    const files = upload.files;
+    for (let file of files) {
+      if (!file.type.startsWith('image/')) continue;
+
+      const reader = new FileReader();
+      reader.onload = e => {
+        const img = document.createElement('img');
+        img.src = e.target.result;
+        img.className = 'thumb';
+        img.setAttribute('draggable', 'true');
+        imageList.appendChild(img);
+        addDnDHandlers(img);
+        images.push(img.src);
+      };
+      reader.readAsDataURL(file);
+    }
+    upload.value = '';
+  });
+
+  startBtn.addEventListener('click', () => {
+    if (images.length === 0) return alert('Bitte lade zuerst Bilder hoch.');
+    currentIndex = 0;
+    animation.innerHTML = `<img src="${images[0]}" />`;
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
+
+    const speed = parseInt(speedInput.value, 10);
+    timer = setInterval(() => {
+      currentIndex = (currentIndex + 1) % images.length;
+      animation.querySelector('img').src = images[currentIndex];
+    }, speed);
+  });
+
+  stopBtn.addEventListener('click', () => {
+    clearInterval(timer);
+    timer = null;
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+  });
+</script>
+
+</body>
+</html>
