@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Dino Hack Terminal</title>
+  <style>
+    body {
+      margin: 0;
+      background: white;
+      font-family: monospace;
+      overflow: hidden;
+    }
+    canvas {
+      display: block;
+    }
+    #terminal {
+      position: absolute;
+      bottom: 50px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 90%;
+      max-height: 200px;
+      background: black;
+      color: lime;
+      border: 2px solid lime;
+      padding: 5px;
+      display: none;
+      overflow-y: auto;
+    }
+    #terminalInput {
+      width: 100%;
+      background: black;
+      color: lime;
+      border: none;
+      outline: none;
+      font-family: monospace;
+    }
+    #toggleTerminal {
+      position: absolute;
+      bottom: 10px;
+      right: 10px;
+      background: black;
+      color: lime;
+      border: 1px solid lime;
+      padding: 5px 10px;
+      cursor: pointer;
+      border-radius: 5px;
+    }
+    #pauseBtn {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      background: black;
+      color: lime;
+      border: 1px solid lime;
+      padding: 5px 10px;
+      cursor: pointer;
+      border-radius: 5px;
+    }
+    #scoreDisplay {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      font-family: monospace;
+      font-size: 18px;
+      font-weight: bold;
+      color: black;
+      background: white;
+      padding: 4px 10px;
+      border-radius: 5px;
+    }
+    .err { color: red; }
+  </style>
+</head>
+<body>
+<canvas id="gameCanvas" width="800" height="300"></canvas>
+<div id="scoreDisplay">Score: 0</div>
+<button id="toggleTerminal">🖥</button>
+<button id="pauseBtn">⏸ Pause</button>
+<div id="terminal">
+  <div id="terminalOutput"></div>
+  <input type="text" id="terminalInput" placeholder="> type command()">
+</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById("gameCanvas");
+  const ctx = canvas.getContext("2d");
+
+  const groundY = canvas.height - 30;
+  const dino = {
+    x: 50, y: groundY - 40, width: 20, height: 40,
+    velocityY: 0, gravity: 0.8, isJumping: false
+  };
+
+  let obstacles = [];
+  let speed = 6;
+  let obstacleSpawnTimer = 0;
+  let obstacleSpawnIntervalMin = 60;
+  let obstacleSpawnIntervalMax = 120;
+  let nextObstacleSpawn = 60;
+  let score = 0;
+  let autoModeActive = false;
+  let paused = false;
+
+  const terminal = document.getElementById("terminal");
+  const terminalInput = document.getElementById("terminalInput");
+  const terminalOutput = document.getElementById("terminalOutput");
+
+  document.getElementById("toggleTerminal").onclick = () => {
+    terminal.style.display = terminal.style.display === "none" ? "block" : "none";
+    terminalInput.focus();
+  };
+
+  document.getElementById("pauseBtn").onclick = () => {
+    paused = !paused;
+    document.getElementById("pauseBtn").textContent = paused ? "▶️ Weiter" : "⏸ Pause";
+  };
+
+  function appendToTerminal(text, cls = "") {
+    const div = document.createElement("div");
+    div.textContent = text;
+    if (cls) div.className = cls;
+    terminalOutput.appendChild(div);
+    terminalOutput.scrollTop = terminalOutput.scrollHeight;
+  }
+
+  terminalInput.addEventListener("keydown", e => {
+    if (e.key === "Enter") {
+      const command = terminalInput.value.trim();
+      terminalInput.value = "";
+      appendToTerminal("> " + command);
+      executeCommand(command);
+    }
+  });
+
+  const daScriptEnv = {
+    flyMode: false,
+    invincible: false,
+    setSpeed(v) {
+      speed = parseFloat(v);
+    },
+    jump() {
+      if (!dino.isJumping) {
+        dino.velocityY = -12;
+        dino.isJumping = true;
+      }
+    },
+    teleport(x, y) {
+      dino.x = parseInt(x);
+      dino.y = parseInt(y);
+    },
+    toggleFly() {
+      daScriptEnv.flyMode = !daScriptEnv.flyMode;
+    },
+    toggleAuto() {
+      autoModeActive = !autoModeActive;
+    },
+    godmode(enable) {
+      daScriptEnv.invincible = enable === "true";
+    },
+    help() {
+      appendToTerminal("Available Commands:");
+      appendToTerminal(" - setSpeed(n)");
+      appendToTerminal(" - jump()");
+      appendToTerminal(" - teleport(x, y)");
+      appendToTerminal(" - toggleFly()");
+      appendToTerminal(" - toggleAuto()");
+      appendToTerminal(" - godmode(true/false)");
+    }
+  };
+
+  function executeCommand(cmdStr) {
+    try {
+      if (!cmdStr.includes("(")) return appendToTerminal("ERROR [0x0002]: Invalid syntax", "err");
+      const cmdName = cmdStr.split("(")[0];
+      const argsStr = cmdStr.substring(cmdStr.indexOf("(") + 1, cmdStr.lastIndexOf(")"));
+      const args = argsStr.split(",").map(a => a.trim());
+      const fn = daScriptEnv[cmdName];
+      if (typeof fn === "function") {
+        fn(...args);
+      } else {
+        appendToTerminal(`ERROR [0x0003]: Command "${cmdName}" not found`, "err");
+      }
+    } catch(e) {
+      appendToTerminal("ERROR [0x0004]: " + e.message, "err");
+    }
+  }
+
+  function getRandomInt(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+  }
+
+  function spawnRandomObstacle() {
+    const height = getRandomInt(20, 60);
+    const width = getRandomInt(10, 20);
+    const ob = {
+      x: canvas.width,
+      y: groundY - height,
+      width,
+      height
+    };
+    obstacles.push(ob);
+  }
+
+  function checkCollision(a, b) {
+    return a.x < b.x + b.width &&
+           a.x + a.width > b.x &&
+           a.y < b.y + b.height &&
+           a.y + a.height > b.y;
+  }
+
+  function resetGame() {
+    obstacles = [];
+    dino.x = 50;
+    dino.y = groundY - 40;
+    dino.velocityY = 0;
+    dino.isJumping = false;
+    score = 0;
+    updateScore();
+  }
+
+  function updateScore() {
+    document.getElementById("scoreDisplay").textContent = "Score: " + score;
+  }
+
+  let lastTime = 0;
+  let collisionCooldown = false;
+
+  function gameLoop(timestamp = 0) {
+    if (paused) {
+      requestAnimationFrame(gameLoop);
+      return;
+    }
+
+    const delta = (timestamp - lastTime) / 16.666;
+    lastTime = timestamp;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Boden
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, groundY, canvas.width, 5);
+
+    // Bewegung
+    if (!daScriptEnv.flyMode) {
+      dino.velocityY += dino.gravity;
+    } else {
+      dino.velocityY = 0;
+      dino.y -= 4;
+      if (dino.y < 0) dino.y = 0;
+    }
+    dino.y += dino.velocityY;
+
+    if (dino.y > groundY - dino.height) {
+      dino.y = groundY - dino.height;
+      dino.velocityY = 0;
+      dino.isJumping = false;
+    }
+
+    // Auto jump
+    if (autoModeActive) {
+      const next = obstacles.find(ob => ob.x > dino.x);
+      if (next && next.x - dino.x < 90 && !dino.isJumping) {
+        daScriptEnv.jump();
+      }
+    }
+
+    // Dino zeichnen
+    ctx.fillStyle = "#000";
+    ctx.fillRect(dino.x, dino.y, dino.width, dino.height);
+
+    // Hindernisse
+    for (let i = obstacles.length - 1; i >= 0; i--) {
+      const ob = obstacles[i];
+      ob.x -= speed;
+
+      ctx.fillStyle = "#000";
+      ctx.fillRect(ob.x, ob.y, ob.width, ob.height);
+
+      if (!daScriptEnv.invincible && !collisionCooldown && checkCollision(dino, ob)) {
+        collisionCooldown = true;
+        appendToTerminal("ERROR [0xDEAD]: Collision detected", "err");
+        setTimeout(() => collisionCooldown = false, 1000);
+        setTimeout(resetGame, 1000);
+      }
+
+      if (ob.x + ob.width < 0) {
+        obstacles.splice(i, 1);
+        score++;
+        updateScore();
+      }
+    }
+
+    // Spawn Hindernisse
+    obstacleSpawnTimer++;
+    if (obstacleSpawnTimer >= nextObstacleSpawn) {
+      spawnRandomObstacle();
+      obstacleSpawnTimer = 0;
+      nextObstacleSpawn = getRandomInt(obstacleSpawnIntervalMin, obstacleSpawnIntervalMax);
+    }
+
+    requestAnimationFrame(gameLoop);
+  }
+
+  // 🚀 Jump Controls
+  window.addEventListener("keydown", e => {
+    if (e.code === "Space") daScriptEnv.jump();
+  });
+
+  window.addEventListener("mousedown", e => {
+    if (!terminal.contains(e.target)) daScriptEnv.jump();
+  });
+
+  window.addEventListener("touchstart", e => {
+    if (!terminal.contains(e.target)) daScriptEnv.jump();
+  });
+
+  resetGame();
+  gameLoop();
+})();
+</script>
+</body>
+</html>
